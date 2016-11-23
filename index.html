@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<style>
+
+svg {
+font: 10px sans-serif;
+}
+
+.caption {
+	font-weight: bold;
+}
+
+.legend path {
+display: none;
+}
+
+.legend line {
+stroke: #000;
+	shape-rendering: crispEdges;
+}
+
+.county-border, .tract-border, .state-border {
+fill: none;
+stroke: #000;
+	stroke-opacity: .3;
+}
+    
+h1 { 
+    color: dodgerblue; 
+    font-family: 'Raleway',sans-serif; 
+    font-size: 40px; 
+    font-weight: 800; 
+    line-height: 50px; 
+    margin: 0 0 24px; 
+    text-align: left; 
+    text-transform: uppercase; 
+}
+
+</style>
+<body>
+
+<h1>North Carolina Population Density</h1>
+<button type="button" onclick="updateColor(this)">Change Color</button>
+<button type="button" onclick="updateStateBorder(this)">State borders ON/OFF</button>
+<button type="button" onclick="updateTractBorder(this)">Tracts borders ON/OFF</button>
+<p></p>
+<!--<p>Yanzhong Li<br>Instructor: Suresh Lodha<br>CMPS 165: Data programming for Visualization<br>Fall 2016</p>-->
+
+<script src="http://d3js.org/d3.v3.min.js"></script>
+<script src="http://d3js.org/topojson.v1.min.js"></script>
+<script>
+
+var width = 960,
+    height = 1100,
+    legendX = 50,
+    legendY = 345,
+    legendHeight = 8;
+
+var projection = d3.geo.albers()
+                .center([0, 32.2])
+                .rotate([80, 0])
+                .parallels([50, 60])
+                .scale(7000)
+                .translate([width / 2 , height / 2 ]);
+
+var path = d3.geo.path()
+        	.projection(projection);
+
+var color = d3.scale.threshold()
+            .domain([1, 10, 50, 100, 500, 1000, 2000, 5000])
+            .range(["#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]);
+
+//Create the main SVG element
+var svg = d3.select("body").append("svg")
+		.attr("width", width)
+		.attr("height", height);  
+
+
+//Flags for each button
+var isAlterColor = false;    
+var hasStateBorder = false;
+var hasTractBorder = false;
+
+// Event handler for "Change Color" button
+function updateColor() {
+    //update the flag
+    isAlterColor = !isAlterColor;
+    //update the color scale's range
+    if (isAlterColor) {
+        color.range(["#ccd9ff", "#99b3ff", "#668cff", "#3366ff", "#0040ff", "#0039e6", "#002db3", "#002080", "#00134d"]);
+    }
+    else {
+        color.range(["#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]);
+    }
+    //update the graph
+    d3.select(".legend").remove();
+    plotLegend();
+    d3.select(".tract").remove();
+    d3.select(".county-border").remove();
+    d3.select(".tract-border").remove();
+    d3.select(".state-border").remove();    
+    d3.json("nc.json", function(error, nc) {
+        if (error) throw error;
+        plotByTracts();
+        plotCountyBorder(nc);
+        plotTractBorder(nc);
+        plotStateBorder(nc);
+    });
+}    
+
+// Event handler for "State borders ON/OFF" button    
+function updateStateBorder(){
+	hasStateBorder = !hasStateBorder;
+    //update the graph
+    d3.select(".state-border").remove();    
+    d3.json("nc.json", function(error, nc) {
+        if (error) throw error;
+        plotStateBorder(nc);
+    });
+}
+
+// Event handler for "Tract borders ON/OFF" button  
+function updateTractBorder(){
+	//update the flag
+    hasTractBorder = !hasTractBorder;
+    //update the graph
+    d3.select(".tract-border").remove();
+    d3.json("nc.json", function(error, nc) {
+        if (error) throw error;
+        plotTractBorder(nc);
+    });
+}
+
+// Function to plot the legend
+function plotLegend(){
+    
+    var formatNumber = d3.format(",d");    
+    // A position encoding for the legend only.
+    var x = d3.scale.linear()
+        .domain([0, 5100])
+        .range([0, 480]);
+
+    var xAxis = d3.svg.axis()
+        .scale(x)
+        .orient("bottom")
+        .tickSize(13)
+        .tickValues(color.domain())
+        .tickFormat(function(d) { return d >= 100 ? formatNumber(d) : null; });    
+    
+    //group for legend
+    var legend = svg.append("g")
+        .attr("class", "legend")
+        .attr("transform", "translate(" + legendX + "," + legendY + ")");
+
+    // Draw legends notations
+    legend.call(xAxis).append("text")
+        .attr("class", "caption")
+        .attr("y", -6)
+        .text("Population per square mile");  
+    
+    // Plot or re-plot legend bar
+	legend.selectAll("rect")
+		.data(color.range().map(function(d, i) {
+            return {
+                x0: i ? x(color.domain()[i - 1]) : x.range()[0],
+                x1: i < color.domain().length ? x(color.domain()[i]) : x.range()[1],
+                z: d
+                };
+            }))
+        .enter().append("rect")
+        .attr("height", legendHeight)
+        .attr("x", function(d) { return d.x0; })
+        .attr("width", function(d) { return d.x1 - d.x0; })
+        .style("fill", function(d) { return d.z; });
+}
+
+
+//Get the tracts feature for future use
+var tracts = {}
+d3.json("nc.json", function(error, state) {  
+        if (error) throw error;
+        tracts = topojson.feature(state, state.objects.tracts);
+});
+    
+// Function to plot all tract shapes, applying the clipPath. 
+function plotByTracts(){
+        
+    // Group tracts by color for faster rendering.
+    svg.append("g")
+    .attr("class", "tract")
+    .attr("clip-path", "url(#clip-land)")
+    .selectAll("path")
+    .data(d3.nest()
+            .key(function(d) { return color(d.properties.population / d.properties.area * 2.58999e6); })
+            .entries(tracts.features.filter(function(d) { return d.properties.area; })))
+    .enter().append("path")
+    .style("fill", function(d) { return d.key; })
+    .attr("d", function(d) { return path({type: "FeatureCollection", features: d.values}); });
+}
+
+// Function to plot county borders.
+function plotCountyBorder(state){
+    // Plot county borders, always.
+    svg.append("path")
+        .datum(topojson.mesh(state, state.objects.counties, function(a, b) { return a !== b; }))
+        .attr("class", "county-border")
+        .attr("d", path);
+}
+
+// Function to plot tract borders. 
+function plotTractBorder(state){
+    // Plot census tract borders, on conditoin.
+    if(hasTractBorder == false){
+        svg.append("path")
+        .datum(topojson.mesh(state, state.objects.tracts, function(a, b) { return a !== b; }))
+            .attr("class", "tract-border")
+            .attr("d", path);
+    }
+}   
+    
+// Function to plot state border.
+function plotStateBorder(state){
+    // Plot state border, on conditoin.
+    if(hasStateBorder == false){
+        svg.append("path")
+            .datum(topojson.mesh(state, state.objects.counties, function(a, b) { return a === b; }))
+            .attr("class", "state-border")
+            .attr("d", path);
+    }
+}
+    
+// Function to define the ClipPath. It will be called only once, when we plot the initial graph
+function defineClipPath(state){
+    // Define a clipPath, in order to clip tracts to land (off ocean/water).
+    svg.append("defs").append("clipPath")
+    .attr("id", "clip-land")
+    .append("path")
+    .datum(topojson.feature(state, state.objects.counties))
+    .attr("d", path);
+}
+    
+//////We plot the initial graph  --start
+// plot the legend
+plotLegend();
+// plot the main map
+d3.json("nc.json", function(error, nc) {
+    if (error) throw error;
+    
+    defineClipPath(nc);
+    plotByTracts();
+    plotCountyBorder(nc);
+    plotTractBorder(nc);
+    plotStateBorder(nc);
+});
+    
+// Author info
+var info = svg.append('g').attr("class", "authorInfo")
+            .attr("transform", "translate(" + legendX + "," + legendY + ")")
+            .attr("font-family", "Tahoma, Geneva, sans-serif")
+            .attr("font-size", "15px")
+            .attr("fill", "black");
+info.append("text")
+    .text("Yanzhong Li")
+    .attr("y",150);
+info.append("text")
+    .text("Instructor: Suresh Lodha")
+    .attr("y",170);
+info.append("text")
+    .text("CMPS 165: Data programming for Visualization")
+    .attr("y",190);
+info.append("text")
+    .text("Fall 2016")
+    .attr("y",210);
+// adjust frame height
+d3.select(self.frameElement).style("height", height + "px");
+//////We plot the initial graph  --end
+
+</script>
+
+</body>
+</html>
