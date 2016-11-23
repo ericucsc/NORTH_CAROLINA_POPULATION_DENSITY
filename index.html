@@ -20,11 +20,12 @@ stroke: #000;
 	shape-rendering: crispEdges;
 }
 
-.county-border, .tract-border, .state-border {
-fill: none;
-stroke: #000;
+.county-border {
+    fill: none;
+    stroke: #000;
 	stroke-opacity: .3;
 }
+
     
 h1 { 
     color: dodgerblue; 
@@ -79,8 +80,8 @@ var svg = d3.select("body").append("svg")
 
 //Flags for each button
 var isAlterColor = false;    
-var hasStateBorder = false;
-var hasTractBorder = false;
+var hasStateBorder = true;
+var hasTractBorder = true;
 
 // Event handler for "Change Color" button
 function updateColor() {
@@ -93,46 +94,55 @@ function updateColor() {
     else {
         color.range(["#fff7ec", "#fee8c8", "#fdd49e", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#b30000", "#7f0000"]);
     }
-    //update the graph
-    d3.select(".legend").remove();
-    plotLegend();
-    d3.select(".tract").remove();
-    d3.select(".county-border").remove();
-    d3.select(".tract-border").remove();
-    d3.select(".state-border").remove();    
-    d3.json("nc.json", function(error, nc) {
-        if (error) throw error;
-        plotByTracts();
-        plotCountyBorder(nc);
-        plotTractBorder(nc);
-        plotStateBorder(nc);
-    });
+    
+    //update the color of each tract shape
+    d3.select(".tract").selectAll("path")
+    .data(d3.nest()
+            .key(function(d) { return color(d.properties.population / d.properties.area * 2.58999e6); })
+            .entries(tracts.features.filter(function(d) { return d.properties.area; })))
+    .style("fill", function(d) { return d.key; });
+    
+
+    //update the color of the legend bar
+    legend.selectAll("rect")
+		.data(color.range().map(function(d, i) {
+            return { z: d };
+            }))
+        .style("fill", function(d) { return d.z; });
 }    
 
+    
 // Event handler for "State borders ON/OFF" button    
 function updateStateBorder(){
+    //update the flag
 	hasStateBorder = !hasStateBorder;
-    //update the graph
-    d3.select(".state-border").remove();    
-    d3.json("nc.json", function(error, nc) {
-        if (error) throw error;
-        plotStateBorder(nc);
-    });
+    
+    //update the visibility of state borders
+    if (hasStateBorder){
+        d3.select(".state-border").attr("stroke", "#000");
+    }
+    else{
+        d3.select(".state-border").attr("stroke", "none");
+    }
 }
 
 // Event handler for "Tract borders ON/OFF" button  
 function updateTractBorder(){
 	//update the flag
     hasTractBorder = !hasTractBorder;
-    //update the graph
-    d3.select(".tract-border").remove();
-    d3.json("nc.json", function(error, nc) {
-        if (error) throw error;
-        plotTractBorder(nc);
-    });
+    
+    //update the visibility of tract borders
+    if (hasTractBorder){
+        d3.select(".tract-border").attr("stroke", "#000");
+    }
+    else{
+        d3.select(".tract-border").attr("stroke", "none");
+    }
+    
 }
 
 // Function to plot the legend
+var legend = {} //predefined the legend variable for updateColor function to use it
 function plotLegend(){
     
     var formatNumber = d3.format(",d");    
@@ -149,7 +159,7 @@ function plotLegend(){
         .tickFormat(function(d) { return d >= 100 ? formatNumber(d) : null; });    
     
     //group for legend
-    var legend = svg.append("g")
+    legend = svg.append("g")
         .attr("class", "legend")
         .attr("transform", "translate(" + legendX + "," + legendY + ")");
 
@@ -174,14 +184,11 @@ function plotLegend(){
         .attr("width", function(d) { return d.x1 - d.x0; })
         .style("fill", function(d) { return d.z; });
 }
-
-
-//Get the tracts feature for future use
+    
+//Declare the tracts feature for future use.
+// this variable would be filled when we are plotting initial graph
 var tracts = {}
-d3.json("nc.json", function(error, state) {  
-        if (error) throw error;
-        tracts = topojson.feature(state, state.objects.tracts);
-});
+
     
 // Function to plot all tract shapes, applying the clipPath. 
 function plotByTracts(){
@@ -192,7 +199,7 @@ function plotByTracts(){
     .attr("clip-path", "url(#clip-land)")
     .selectAll("path")
     .data(d3.nest()
-            .key(function(d) { return color(d.properties.population / d.properties.area * 2.58999e6); })
+            .key(function(d) {return color(d.properties.population / d.properties.area * 2.58999e6); })
             .entries(tracts.features.filter(function(d) { return d.properties.area; })))
     .enter().append("path")
     .style("fill", function(d) { return d.key; })
@@ -208,26 +215,29 @@ function plotCountyBorder(state){
         .attr("d", path);
 }
 
-// Function to plot tract borders. 
+// Function to plot tract borders.
 function plotTractBorder(state){
-    // Plot census tract borders, on conditoin.
-    if(hasTractBorder == false){
-        svg.append("path")
+    // Plot census tract borders.
+    svg.append("path")
         .datum(topojson.mesh(state, state.objects.tracts, function(a, b) { return a !== b; }))
-            .attr("class", "tract-border")
-            .attr("d", path);
-    }
+        .attr("class", "tract-border")
+        .attr("fill", "none")
+        .attr("stroke", "#000")
+        .attr("stroke-opacity", ".3")
+        .attr("d", path);
 }   
     
 // Function to plot state border.
 function plotStateBorder(state){
     // Plot state border, on conditoin.
-    if(hasStateBorder == false){
-        svg.append("path")
-            .datum(topojson.mesh(state, state.objects.counties, function(a, b) { return a === b; }))
-            .attr("class", "state-border")
-            .attr("d", path);
-    }
+    svg.append("path")
+        .datum(topojson.mesh(state, state.objects.counties, function(a, b) { return a === b; }))
+        .attr("class", "state-border")
+        .attr("fill", "none")
+        .attr("stroke", "#000")
+        .attr("stroke-opacity", ".3")
+        .attr("d", path);
+    
 }
     
 // Function to define the ClipPath. It will be called only once, when we plot the initial graph
@@ -240,21 +250,28 @@ function defineClipPath(state){
     .attr("d", path);
 }
     
-//////We plot the initial graph  --start
-// plot the legend
-plotLegend();
-// plot the main map
+    
+    
+//Get data from nc.json file, and plot the initial graph
 d3.json("nc.json", function(error, nc) {
     if (error) throw error;
     
+    //filled the tracts variable
+    tracts = topojson.feature(nc, nc.objects.tracts);
+    
+    // plot the main map
     defineClipPath(nc);
     plotByTracts();
     plotCountyBorder(nc);
     plotTractBorder(nc);
     plotStateBorder(nc);
+    
+    // plot the legend. plotLegend does not depend on nc.json.
+    // we put it here is merely to wait for main graph to be plotted first
+    plotLegend();
 });
     
-// Author info
+// Add author info
 var info = svg.append('g').attr("class", "authorInfo")
             .attr("transform", "translate(" + legendX + "," + legendY + ")")
             .attr("font-family", "Tahoma, Geneva, sans-serif")
@@ -272,9 +289,9 @@ info.append("text")
 info.append("text")
     .text("Fall 2016")
     .attr("y",210);
+    
 // adjust frame height
 d3.select(self.frameElement).style("height", height + "px");
-//////We plot the initial graph  --end
 
 </script>
 
